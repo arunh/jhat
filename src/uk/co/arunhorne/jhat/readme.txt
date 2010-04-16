@@ -1,0 +1,65 @@
+
+###PART 1: Run the program with GC stats
+
+#Open a console window and run the SessionReloadCacheSimulator
+java -verbose:gc -XX:+PrintGCTimeStamps -XX:+PrintGCDetails uk.co.arunhorne.jhat.SessionReloadCacheSimulator
+
+
+###PART 2: Observe the program
+
+#Now run the following commands in another window, keep an eye on the first window...
+
+#First you need the PID for the process we want to interrogate
+PID=`jps | grep SessionCacheReloadSimulator | cut -d' ' -f1`
+
+#Have a look at it's memory usage with either of these commands
+jmap -heap $PID
+jstat -gc $PID
+
+#Note the subtle difference between histo and histo:live (number of Session objects)
+#SessionCacheReloadSimulator removes one of the pre-reload sessions before it goes to sleep
+#But this object has not yet been collected. When you run the :live command you should see a full-gc
+#get logged, running without :live again should show a session count of 2 now.
+
+jmap -histo $PID | grep uk.co.arunhorne
+jmap -histo:live $PID | grep uk.co.arunhorne
+jmap -histo $PID | grep uk.co.arunhorne
+
+
+###PART 3: Analyse the heap offline
+
+#Dump the heap, live refs only so we can look at it using Jhat
+jmap -dump:live,format=b,file=/tmp/heap.dump $PID
+
+#Start it up in a Jhat browser (you want to put it in the background so you don't lock up your console)
+jhat /tmp/heap.dump &
+
+#Now you can look at the heap
+http://localhost:7000
+
+
+###PART 4: Query the Heap
+
+#OQL queries
+select s from uk.co.arunhorne.jhat.Session s where s.id == 1
+
+select heap.livepaths(s) from uk.co.arunhorne.jhat.Cacheable s
+
+select count(referrers(o)) from uk.co.arunhorne.jhat.Cacheable o
+
+select referrers(o) from uk.co.arunhorne.jhat.Cacheable o
+
+#This returns all the Cacheable objects reachable from the session/cache respectively
+select filter(reachables(s), "/uk.co.arunhorne/(classof(it).name)") from uk.co.arunhorne.jhat.Session s
+select filter(reachables(c), "/uk.co.arunhorne/(classof(it).name)") from uk.co.arunhorne.jhat.Cache c
+
+#Show the live paths to each Cacheable
+map(heap.objects('uk.co.arunhorne.jhat.Cacheable', true),
+  function (it) {
+    var res = '<p>';
+    res += toHtml(heap.livepaths(it));
+    return res + "</p>";
+  }
+)
+
+
